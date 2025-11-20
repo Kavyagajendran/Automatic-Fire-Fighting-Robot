@@ -1,0 +1,585 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Keypad.h>
+#include <EEPROM.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+const byte ROWS = 4; /* four rows */
+const byte COLS = 4; /* four columns */
+/* define the symbols on the buttons of the keypads */
+char keys[ROWS][COLS] = {
+  { '1', '2', '3', 'A' },
+  { '4', '5', '6', 'B' },
+  { '7', '8', '9', 'C' },
+  { '*', '0', '#', 'D' }
+};
+byte rowPins[ROWS] = { A1, A2, A3, 9 };  /* connect to the row pinouts of the keypad */
+byte colPins[COLS] = { 10, 11, 12, 13 }; /* connect to the column pinouts of the keypad */
+
+/* initialize an instance of class NewKeypad */
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+
+bool starting = HIGH;
+bool stoping = LOW;
+
+int relay1 = 2;  /// forward , left forward, right forward
+int relay2 = 3;  // reverse
+int relay3 = 4;  // left turn
+int relay4 = 5;  // right turn
+
+int clkrotation = 6;  ////Realy pin
+int anticlock = 7;    //// alarm
+int pump = 8;         //// alarm
+int fire = A0;
+
+int inputcount = 1, forward = 0, left_turn = 0, left_forward = 0, right_turn = 0, right_forward = 0, clock_rotation = 0, anti_clock_rotation = 0;
+int setFreq = 0;
+int count = 0;
+bool looprun = false;
+bool setMode = false;
+//int state1 = 0;
+//int state2 = 0;
+bool forwardCompleted = false, left_turnCompleted = false, left_forwardCompleted = false, right_turnCompleted = false, right_forwardCompleted = false, clock_rotationCompleted = false, anti_clock_rotationCompleted = false;
+unsigned long forwardStartTime = 0, left_turnStartTime = 0, left_forwardStartTime = 0, right_turnStartTime = 0, right_forwardStartTime = 0, clock_rotationStartTime = 0, anti_clock_rotationStartTime = 0;
+bool reverseStarted = false;
+unsigned long currentTime;
+int DELAYSECS = 500;
+
+void setup() {
+  Serial.begin(9600);
+  lcd.init();
+  lcd.backlight();
+
+
+  pinMode(relay1, OUTPUT);
+  pinMode(relay2, OUTPUT);
+  pinMode(relay3, OUTPUT);
+  pinMode(relay4, OUTPUT);
+  pinMode(clkrotation, OUTPUT);
+  pinMode(anticlock, OUTPUT);
+  pinMode(pump, OUTPUT);
+  pinMode(fire, INPUT_PULLUP);
+
+  digitalWrite(relay1, stoping);
+  digitalWrite(relay2, stoping);
+  digitalWrite(relay3, stoping);
+  digitalWrite(relay4, stoping);
+  digitalWrite(clkrotation, stoping);
+  digitalWrite(pump, stoping);
+  digitalWrite(anticlock, stoping);
+
+
+  lcd.begin(16, 2);
+  lcd.setCursor(0, 0);
+  lcd.print("AUTOMATIC FIRE");
+  lcd.setCursor(0, 1);
+  lcd.print("FIGHTING AGV");
+  delay(1000);
+
+
+  forward = EEPROM.read(1);
+  left_turn = EEPROM.read(2);
+  left_forward = EEPROM.read(3);
+  right_turn = EEPROM.read(4);
+  right_forward = EEPROM.read(5);
+  clock_rotation = EEPROM.read(6);
+  anti_clock_rotation = EEPROM.read(7);
+
+  //  delay(startingDelay);
+
+  int count = 0;
+}
+
+void myFunction(String print_str1, String print_str2, int delayseconds) {
+  lcdprint2line(print_str1, print_str2);
+  delay(delayseconds * DELAYSECS);
+}
+void lcdprint2line(String print_str1, String print_str2) {
+  lcd.clear();
+  lcd.begin(16, 2);
+  lcd.setCursor(0, 0);
+  lcd.print(print_str1);
+  lcd.setCursor(0, 1);
+  lcd.print(print_str2);
+}
+void loop() {
+
+
+  char customKey = keypad.getKey();
+
+  if (customKey != NO_KEY && looprun == false) {
+    Serial.println(customKey);
+    String inp = (String(customKey));
+    int values = inp.toInt();
+
+    if (customKey == '*') {
+
+
+      setMode = true;
+      setFreq = 0;
+      delay(500);
+
+
+      lcd.clear();
+      if (inputcount == 1) {
+        forward = EEPROM.read(1);
+        lcdprint2line("Forward Secs:", String(forward));
+        inputcount = 2;
+      } else if (inputcount == 2) {
+        left_turn = EEPROM.read(2);
+        lcdprint2line("Left Turn Secs:", String(left_turn));
+        inputcount = 3;
+      } else if (inputcount == 3) {
+        left_forward = EEPROM.read(3);
+        lcdprint2line("Left Forward:", String(left_forward));
+        inputcount = 4;
+      } else if (inputcount == 4) {
+        right_turn = EEPROM.read(4);
+        lcdprint2line("Right Turn:", String(right_turn));
+        inputcount = 5;
+      } else if (inputcount == 5) {
+        right_forward = EEPROM.read(5);
+        lcdprint2line("Right forward:", String(right_forward));
+        inputcount = 6;
+      } else if (inputcount == 6) {
+        clock_rotation = EEPROM.read(6);
+        lcdprint2line("Clock Rotate:", String(clock_rotation));
+        inputcount = 7;
+      } else if (inputcount == 7) {
+        anti_clock_rotation = EEPROM.read(7);
+        lcdprint2line("Anti Clk Rotate:", String(anti_clock_rotation));
+        inputcount = 8;
+      } else {
+        setMode = false;
+        setFreq = 0;
+      }
+      lcd.print(" OK");
+    } else if (customKey == '#') {
+      if (setMode) {
+
+        setMode = false;
+        setFreq = 0;
+        lcd.clear();
+        if (inputcount == 2) {
+          EEPROM.write(1, forward);
+          lcdprint2line("Forward Secs:", String(forward));
+        } else if (inputcount == 3) {
+          EEPROM.write(2, left_turn);
+          lcdprint2line("Left Turn Secs:", String(left_turn));
+        } else if (inputcount == 4) {
+          EEPROM.write(3, left_forward);
+          lcdprint2line("Left Forward:", String(left_forward));
+        } else if (inputcount == 5) {
+          EEPROM.write(4, right_turn);
+          lcdprint2line("Right Turn:", String(right_turn));
+        } else if (inputcount == 6) {
+          EEPROM.write(5, right_forward);
+          lcdprint2line("Right forward:", String(right_forward));
+        } else if (inputcount == 7) {
+          EEPROM.write(6, clock_rotation);
+          lcdprint2line("Clock Rotate:", String(clock_rotation));
+        } else if (inputcount == 8) {
+          EEPROM.write(7, anti_clock_rotation);
+          lcdprint2line("Anti Clk Rotate:", String(anti_clock_rotation));
+          inputcount = 1;
+        }
+
+        lcd.print(" DONE");
+      }
+
+    } else {
+      if (setMode) {
+        setFreq = values + setFreq * 10;
+        lcd.clear();
+        if (inputcount == 2) {
+          forward = setFreq;
+          lcdprint2line("Set Forward:", String(forward));
+        } else if (inputcount == 3) {
+          left_turn = setFreq;
+          lcdprint2line("Set Left Turn:", String(left_turn));
+        } else if (inputcount == 4) {
+          left_forward = setFreq;
+          lcdprint2line("Set Left Forward:", String(left_forward));
+        } else if (inputcount == 5) {
+          right_turn = setFreq;
+          lcdprint2line("Set Right Turn:", String(right_turn));
+        } else if (inputcount == 6) {
+          right_forward = setFreq;
+          lcdprint2line("Set Right Forward:", String(right_forward));
+        } else if (inputcount == 7) {
+          clock_rotation = setFreq;
+          lcdprint2line("Set Clock Rotate:", String(clock_rotation));
+        } else if (inputcount == 8) {
+          anti_clock_rotation = setFreq;
+          lcdprint2line("Set Anti Clock:", String(anti_clock_rotation));
+        }
+      } else {
+        lcd.clear();
+        setFreq = values + setFreq * 10;
+        lcd.setCursor(0, 0);
+        lcd.print(setFreq);
+      }
+    }
+  } else {
+
+    if (setFreq == 99) {
+
+      lcdprint2line("Forward Secs: ", String(forward));
+      delay(2000);
+
+      lcdprint2line("Left Turn: ", String(left_turn));
+      delay(2000);
+
+      lcdprint2line("Left Forward: ", String(left_forward));
+      delay(2000);
+
+      lcdprint2line("Right Turn: ", String(right_turn));
+      delay(2000);
+
+      lcdprint2line("Right Forward: ", String(right_forward));
+      delay(2000);
+
+      lcdprint2line("Clock Rotation: ", String(clock_rotation));
+      delay(2000);
+
+      lcdprint2line("Anti Clk Rotation: ", String(anti_clock_rotation));
+      delay(2000);
+
+
+
+      setFreq = 0;
+      lcd.clear();
+      lcd.print("DONE");
+    } else if (setFreq == 777 && looprun == false) {
+      looprun = true;
+      currentTime = millis();
+
+      forwardStartTime = currentTime, left_turnStartTime = currentTime, left_forwardStartTime = currentTime, right_turnStartTime = currentTime, right_forwardStartTime = currentTime, clock_rotationStartTime = currentTime, anti_clock_rotationStartTime = currentTime;
+    }
+    //lcd.setCursor(0, 1);
+    //lcd.print("No Key");
+  }
+  if (setMode) {
+    return;
+  }
+  if (looprun == false) {
+    return;
+  }
+
+
+
+  if (digitalRead(A0) == LOW) {
+
+    digitalWrite(relay1, stoping);
+    digitalWrite(relay2, stoping);
+    digitalWrite(relay3, stoping);
+    digitalWrite(relay4, stoping);
+    digitalWrite(clkrotation, stoping);
+    digitalWrite(anticlock, stoping);
+
+
+
+    digitalWrite(pump, starting);
+    delay(3000);
+    forwardStartTime = forwardStartTime + 3020, left_turnStartTime = left_turnStartTime + 3020, left_forwardStartTime = left_forwardStartTime + 3020, right_turnStartTime = right_turnStartTime + 3020, right_forwardStartTime = right_forwardStartTime + 3020, clock_rotationStartTime = clock_rotationStartTime + 3020, anti_clock_rotationStartTime = anti_clock_rotationStartTime + 3020;
+
+    digitalWrite(pump, stoping);
+
+
+    return;
+    //digitalread(A0)
+  }
+  currentTime = millis();
+  // Print the current time to the serial monitor
+  //Serial.print("Current time: ");
+  //Serial.println(currentTime);
+
+  // Delay for 1 second before capturing the time again
+  //delay(1000);
+  //return;
+
+  if (reverseStarted == false && forwardCompleted == false) {
+    //Serial.print("Current time= ");
+    //Serial.println(currentTime);
+    //Serial.print("forwardStartTime= ");
+    //Serial.println(forwardStartTime);
+    if (currentTime - forwardStartTime >= (forward * DELAYSECS)) {
+      forwardCompleted = true;
+      left_turnStartTime = currentTime;
+      digitalWrite(relay1, stoping);
+      digitalWrite(relay3, stoping);
+      lcd.clear();
+      //Serial.println("FORWARD COMPLETE");
+      lcd.print("FORWARD COMPLETE");
+    } else {
+      //forwardStartTime = currentTime;
+
+      digitalWrite(relay1, starting);
+      digitalWrite(relay3, starting);
+    }
+  }
+
+
+  // Task 2: Clock rotation action
+  if (clock_rotationCompleted == false) {
+    //Serial.print("currentTime=");
+    //Serial.println(currentTime);
+    //Serial.print("clock_rotationStartTime=");
+    //Serial.println(clock_rotationStartTime);
+
+    //Serial.print("currentTime - clock_rotationStartTime=");
+    //Serial.println(currentTime - clock_rotationStartTime);
+
+    if ((currentTime - clock_rotationStartTime) >= (clock_rotation * DELAYSECS)) {
+      clock_rotationCompleted = true;
+      anti_clock_rotationCompleted = false;
+      anti_clock_rotationStartTime = currentTime;
+      digitalWrite(clkrotation, stoping);  // Turn off clkrotation
+      //lcd.clear();
+      //Serial.println("CLOCK ROTATION COMPLETE");
+      //lcd.print("CLOCK ROTATION COMPLETE");
+    } else {
+      //clock_rotationStartTime = currentTime;
+      //Serial.println("CLOCK ROTATION Start");
+      digitalWrite(clkrotation, starting);  // Turn on clkrotation
+    }
+  }
+
+  // Task 2: Clock rotation action
+  if (clock_rotationCompleted == true && anti_clock_rotationCompleted == false) {
+    if ((currentTime - anti_clock_rotationStartTime) >= (anti_clock_rotation * DELAYSECS)) {
+      clock_rotationCompleted = false;
+      anti_clock_rotationCompleted = true;
+      clock_rotationStartTime = currentTime;
+      digitalWrite(anticlock, stoping);
+      //lcd.clear();
+      //Serial.println("ANTI CLK COMPLETE");
+      //lcd.print("ANTI CLK COMPLETE");
+    } else {
+      //anti_clock_rotationStartTime = currentTime;
+      //Serial.println("Anti CLOCK ROTATION Start");
+      digitalWrite(anticlock, starting);
+    }
+  }
+
+  if (reverseStarted == false && forwardCompleted == true && left_turnCompleted == false) {
+    if (currentTime - left_turnStartTime >= (left_turn * DELAYSECS)) {
+      left_turnCompleted = true;
+      left_forwardStartTime = currentTime;
+      digitalWrite(relay1, stoping);
+      digitalWrite(relay4, stoping);
+      lcd.clear();
+      lcd.print("LEFT TURN COMPLETE");
+    } else {
+      //left_turnStartTime = currentTime;
+      digitalWrite(relay1, starting);
+      digitalWrite(relay4, starting);
+    }
+  }
+  if (reverseStarted == false && forwardCompleted == true && left_turnCompleted == true && left_forwardCompleted == false) {
+    if (currentTime - left_forwardStartTime >= (left_forward * DELAYSECS)) {
+      left_forwardCompleted = true;
+      right_turnStartTime = currentTime;
+      digitalWrite(relay1, stoping);
+      digitalWrite(relay3, stoping);
+      lcd.clear();
+      lcd.print("LEFT FORWARD COMPLETE");
+    } else {
+      //left_forwardStartTime = currentTime;
+      digitalWrite(relay1, starting);
+      digitalWrite(relay3, starting);
+    }
+  }
+
+  if (reverseStarted == false && forwardCompleted == true && left_turnCompleted == true && left_forwardCompleted == true && right_turnCompleted == false) {
+    if (currentTime - right_turnStartTime >= (right_turn * DELAYSECS)) {
+      right_turnCompleted = true;
+      right_forwardStartTime = currentTime;
+      digitalWrite(relay2, stoping);
+      digitalWrite(relay3, stoping);
+      lcd.clear();
+      lcd.print("RIGHT TURN COMPLETE");
+    } else {
+      //right_turnStartTime = currentTime;
+      digitalWrite(relay2, starting);
+      digitalWrite(relay3, starting);
+    }
+  }
+
+  if (reverseStarted == false && forwardCompleted == true && left_turnCompleted == true && left_forwardCompleted == true && right_turnCompleted == true && right_forwardCompleted == false) {
+    if (currentTime - right_forwardStartTime >= (right_forward * DELAYSECS)) {
+      right_forwardCompleted = false;
+      forwardCompleted = false;
+      left_turnCompleted = false;
+      left_forwardCompleted = false;
+      right_turnCompleted = false;
+      reverseStarted = true;
+      forwardStartTime = currentTime, left_turnStartTime = currentTime, left_forwardStartTime = currentTime, right_turnStartTime = currentTime, right_forwardStartTime = currentTime, clock_rotationStartTime = currentTime, anti_clock_rotationStartTime = currentTime;
+      digitalWrite(relay1, stoping);
+      digitalWrite(relay3, stoping);
+      lcd.clear();
+      lcd.print("RIGHT TURN COMPLETE");
+    } else {
+      //right_forwardStartTime = currentTime;
+      digitalWrite(relay1, starting);
+      digitalWrite(relay3, starting);
+    }
+  }
+  //////////////////////////    REVERSE STRAT   ////////////////////////////
+  if (reverseStarted == true && right_forwardCompleted == false) {
+    if (currentTime - right_forwardStartTime >= (right_forward * DELAYSECS)) {
+      right_forwardCompleted = true;
+      left_turnStartTime = currentTime;
+      digitalWrite(relay2, stoping);  // Turn off relay1
+      digitalWrite(relay4, stoping);
+      lcd.clear();
+      lcd.print("REV REVERSE FORWARD COMPLETE");
+    } else {
+      //right_forwardStartTime = currentTime;
+      digitalWrite(relay2, starting);  // Turn on relay1
+      digitalWrite(relay4, starting);
+    }
+  }
+  if (reverseStarted == true && right_forwardCompleted == true && left_turnCompleted == false) {
+    if (currentTime - left_turnStartTime >= (left_turn * DELAYSECS)) {
+      left_turnCompleted = true;
+      left_forwardStartTime = currentTime;
+      digitalWrite(relay1, stoping);
+      digitalWrite(relay4, stoping);  // Turn off relay1
+      lcd.clear();
+      lcd.print("REV LEFT TURN COMPLETE");
+    } else {
+      //left_turnStartTime = currentTime;
+      digitalWrite(relay1, starting);  // Turn on relay1
+      digitalWrite(relay4, starting);
+    }
+  }
+  if (reverseStarted == true && right_forwardCompleted == true && left_turnCompleted == true && left_forwardCompleted == false) {
+    if (currentTime - left_forwardStartTime >= (left_forward * DELAYSECS)) {
+      left_forwardCompleted = true;
+      right_turnStartTime = currentTime;
+      digitalWrite(relay2, stoping);
+      digitalWrite(relay4, stoping);
+      lcd.clear();
+      lcd.print("REV LEFT FORWARD COMPLETE");
+    } else {
+      //left_forwardStartTime = currentTime;
+      digitalWrite(relay2, starting);
+      digitalWrite(relay4, starting);
+    }
+  }
+  if (reverseStarted == true && right_forwardCompleted == true && left_turnCompleted == true && left_forwardCompleted == true && right_turnCompleted == false) {
+    if (currentTime - right_turnStartTime >= (right_turn * DELAYSECS)) {
+      right_turnCompleted = true;
+      forwardStartTime = currentTime;
+      digitalWrite(relay2, stoping);
+      digitalWrite(relay3, stoping);
+      lcd.clear();
+      lcd.print("REV RIGHT TURN COMPLETE");
+    } else {
+      //right_turnStartTime = currentTime;
+      digitalWrite(relay2, starting);
+      digitalWrite(relay3, starting);
+    }
+  }
+  if (reverseStarted == true && right_forwardCompleted == true && left_turnCompleted == true && left_forwardCompleted == true && right_turnCompleted == true && forwardCompleted == false) {
+    if (currentTime - forwardStartTime >= (forward * DELAYSECS)) {
+      reverseStarted = false;
+      forwardCompleted = false;
+      right_forwardCompleted = false;
+
+      left_turnCompleted = false;
+      left_forwardCompleted = false;
+      right_turnCompleted = false;
+      forwardStartTime = currentTime, left_turnStartTime = currentTime, left_forwardStartTime = currentTime, right_turnStartTime = currentTime, right_forwardStartTime = currentTime, clock_rotationStartTime = currentTime, anti_clock_rotationStartTime = currentTime;
+
+      digitalWrite(relay2, stoping);
+      digitalWrite(relay4, stoping);
+      lcd.clear();
+      lcd.print("REVERSE FORWARD COMPLETE");
+    } else {
+      //forwardStartTime = currentTime;
+      digitalWrite(relay2, starting);
+      digitalWrite(relay4, starting);
+    }
+  }
+  //////////////////////////    REVERSE END   ////////////////////////////
+
+
+
+  /*
+  lcd.clear();
+  lcd.print("FORWARD");
+  digitalWrite(relay1, starting);       //Forward
+  digitalWrite(clkrotation, starting);  //clkrotation
+  delay(forward * DELAYSECS);
+  delay(clock_rotation * DELAYSECS);
+  digitalWrite(relay1, stoping);       //Forward
+  digitalWrite(clkrotation, stoping);  //clkrotation
+  delay(500);
+  //forward = 0, left_turn = 0, left_forward = 0, right_turn = 0, right_forward = 0, clock_rotation = 0, anti_clock_rotation = 0;
+  lcd.clear();
+  lcd.print("LEFT TURN");
+  digitalWrite(relay3, starting);  //Left Turn
+  delay(left_turn * DELAYSECS);
+  digitalWrite(relay3, stoping);  //Left Turn
+  delay(500);
+  lcd.clear();
+  lcd.print("LEFT FORWARD");
+  digitalWrite(relay1, starting);  //left_forward
+  delay(left_forward * DELAYSECS);
+  digitalWrite(relay1, stoping);  //left_forward
+  delay(500);
+  lcd.clear();
+  lcd.print("RIGHT TURN");
+  digitalWrite(relay4, starting);  //right_turn
+  delay(right_turn * DELAYSECS);
+  digitalWrite(relay4, stoping);  //right_turn
+  delay(500);
+  lcd.clear();
+  lcd.print("RIGHT FORWARD");
+  digitalWrite(relay1, starting);  //right_forward
+  delay(right_forward * DELAYSECS);
+  digitalWrite(relay1, stoping);  //right_forward
+
+  delay(2000);
+*/
+  //Reverse
+  /*
+  lcd.clear();
+  lcd.print("REVERSE RIGHT FORWARD");
+  digitalWrite(relay2, starting);  //Reverse right_forward
+  delay(right_forward * DELAYSECS);
+  digitalWrite(relay2, stoping);  //Reverse right_forward
+  delay(500);
+
+  lcd.clear();
+  lcd.print("LEFT TURN");
+  digitalWrite(relay3, starting);  //left_turn
+  delay(left_turn * DELAYSECS);
+  digitalWrite(relay3, stoping);
+  delay(500);
+
+  lcd.clear();
+  lcd.print("LEFT FORWARD");
+  digitalWrite(relay2, starting);  //left_forward
+  delay(left_forward * DELAYSECS);
+  digitalWrite(relay2, stoping);
+  delay(500);
+  lcd.clear();
+  lcd.print("RIGHT TURN");
+  digitalWrite(relay4, starting);  //right_turn
+  delay(right_turn * DELAYSECS);
+  digitalWrite(relay4, stoping);
+  delay(500);
+  lcd.clear();
+  lcd.print("REVERSE");
+  digitalWrite(relay2, starting);  //REVERSE
+  delay(forward * DELAYSECS);
+  digitalWrite(relay2, stoping);
+
+  delay(2000);
+  */
+}
